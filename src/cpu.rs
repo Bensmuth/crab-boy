@@ -132,6 +132,11 @@ impl Cpu {
             0xaf =>{ //XOR A into A, essentially sets A to 0
                 self.registers.a = 0 // ! lazy method, but more efficient
             },
+            0x21 =>{ // put value nn into HL
+                self.registers.set_hl((memory.memory[(self.registers.pc + 2) as usize] as u16) << 8 | (memory.memory[(self.registers.pc + 1) as usize] as u16));
+                self.registers.pc += 2;
+
+            }
             _ => {
                 println!("Unimplemented instruction {:x}", memory.memory[self.registers.pc as usize]);
                 exit(0);
