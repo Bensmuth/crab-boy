@@ -4,6 +4,6 @@ pub struct Memory{
 
 impl Memory {
     pub fn new() -> Memory {
-        Memory { memory : [0; 65535]}
+        Memory { memory : [0x00; 65535]}
     }
 }

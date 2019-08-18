@@ -1,3 +1,5 @@
+use std::process::exit;
+
 pub struct Registers{
     a: u8, // accumulator
     f: u8, // flag
@@ -86,8 +88,18 @@ impl Cpu {
         Cpu { registers: registers, operation : operation}
     }
 
-    pub fn tick(&mut self, memory : crate::memory::Memory) -> crate::memory::Memory{
-        println!("{}", memory.memory[0]);
+    pub fn tick(&mut self, mut memory : crate::memory::Memory) -> crate::memory::Memory{
+        match memory.memory[self.registers.pc as usize] {
+            0x31 => { //LD SP 
+                self.registers.sp = (memory.memory[(self.registers.pc + 2) as usize] as u16) << 8 | (memory.memory[(self.registers.pc + 1) as usize] as u16);
+                self.registers.pc += 2;
+            },
+            0xaf => //XOR A
+            _ => {
+                println!("Unimplemented instruction {:x}", memory.memory[self.registers.pc as usize]);
+                exit(0);
+            }
+        }
         self.registers.pc += 1;
         return memory
     }
