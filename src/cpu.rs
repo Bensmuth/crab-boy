@@ -1,8 +1,30 @@
 use std::process::exit;
 
+pub enum Flag {
+    // Zero Flag. This bit is set when the result of a math operationis zero or two values match when using the CP
+    // instruction.
+    Z = 0b1000_0000,
+    // Subtract Flag. This bit is set if a subtraction was performed in the last math instruction.
+    N = 0b0100_0000,
+    // Half Carry Flag. This bit is set if a carry occurred from the lowernibble in the last math operation.
+    H = 0b0010_0000,
+    // Carry Flag. This bit is set if a carry occurred from the last math operation or if register A is the smaller
+    // value when executing the CP instruction.
+    C = 0b0001_0000,
+}
+
+impl Flag { 
+    pub fn og(self) -> u8{
+        self as u8 // ensures bits arent returned
+    }
+    pub fn bw(self) -> u8{
+        !self.og()
+    }
+}
+
 pub struct Registers{
     a: u8, // accumulator
-    f: u8, // flag
+    f: u8, // flag, indirectly accescable
 
     b: u8,
     c: u8,
@@ -23,9 +45,21 @@ impl Registers{
         Registers {a : a, f:f, b:b, c:c, d:d, e:e, h:h, l:l, sp:sp, pc:pc }
     }
 
-    // registers can be combined as AF, BC, DE, HL
+    pub fn get_flag(&self, f:Flag) -> bool{
+        (self.f & f as u8) != 0
+    }
+
+    pub fn set_flag(&mut self, f: Flag, v: bool){
+        if v{
+            self.f |= f.og(); // | is or operator, sets flag 
+        }else {
+            self.f &= f.bw(); // & is and operator, sets flag by merge techniques i think, stolen from mohanson
+        }
+    }
+
+    // * registers can be combined as AF, BC, DE, HL
     pub fn get_af(&self) -> u16 {
-        ((self.a as u16) << 8 | (self.f as u16)) // << is bitshifting and | performs or on bit values
+        ((self.a as u16) << 8 | (self.f as u16)) // * << is bitshifting and | performs or on bit values
     }
 
     pub fn get_bc(&self) -> u16 {
@@ -64,14 +98,14 @@ impl Registers{
 }
 
 
-pub struct Operation{
+pub struct Operation{ // ? this might be redundant
     prefix: u8,
     opcode: u8,
     operand1: u8,
     operand2: u8
 }
 
-impl Operation{
+impl Operation{ // ? this might be redundant
     pub fn new(prefix : u8, opcode : u8, operand1 : u8, operand2 : u8) -> Operation{
         Operation {prefix : prefix, opcode : opcode, operand1 : operand1, operand2 : operand2}
     }
@@ -89,12 +123,15 @@ impl Cpu {
     }
 
     pub fn tick(&mut self, mut memory : crate::memory::Memory) -> crate::memory::Memory{
-        match memory.memory[self.registers.pc as usize] {
+        match memory.memory[self.registers.pc as usize] { // * massive switch that implements all the cpu functions
+            // ! perhaps move each instruction into its own function, will shorten code, but increased complexity
             0x31 => { //LD SP 
                 self.registers.sp = (memory.memory[(self.registers.pc + 2) as usize] as u16) << 8 | (memory.memory[(self.registers.pc + 1) as usize] as u16);
                 self.registers.pc += 2;
             },
-            0xaf => //XOR A
+            0xaf =>{ //XOR A into A, essentially sets A to 0
+                self.registers.a = 0 // ! lazy method, but more efficient
+            },
             _ => {
                 println!("Unimplemented instruction {:x}", memory.memory[self.registers.pc as usize]);
                 exit(0);
