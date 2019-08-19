@@ -130,19 +130,37 @@ impl Cpu {
                 self.registers.pc += 2;
             },
             0xaf =>{ //XOR A into A, essentially sets A to 0
-                self.registers.a = 0 // ! lazy method, but more efficient
+                self.registers.a = 0; // ! lazy method, but more efficient
+                self.registers.set_flag(Flag::N, false);
+                self.registers.set_flag(Flag::H, false);
+                self.registers.set_flag(Flag::C, false);
+                self.registers.set_flag(Flag::Z, true)
             },
             0x21 =>{ // put value nn into HL
                 self.registers.set_hl((memory.memory[(self.registers.pc + 2) as usize] as u16) << 8 | (memory.memory[(self.registers.pc + 1) as usize] as u16));
                 self.registers.pc += 2;
 
-            }
+            },
+            0x32 =>{ //put value at address HL into A. Decrement HL.
+                self.registers.a = memory.memory[self.registers.get_hl() as usize];
+                self.registers.set_hl(self.registers.get_hl() - 1);
+            },
+            0xcb =>{ // swap upper and lower nibles of a
+                
+            },
             _ => {
                 println!("Unimplemented instruction {:x}", memory.memory[self.registers.pc as usize]);
+                println!("Register Dump as hex: ");
+                println!("a: {:x}, f: {:x} \nb: {:x} c: {:x} \nd: {:x} e:{:x} \nh:{:x} l: {:x} \nsp: {:x} pc: {:x}", self.registers.a, self.registers.f, self.registers.b, self.registers.c, self.registers.d, self.registers.e, self.registers.h, self.registers.l, self.registers.sp, self.registers.pc);
+
                 exit(0);
             }
         }
-        self.registers.pc += 1;
+        if self.registers.pc == 65534{
+            self.registers.pc = 0
+        } else{
+            self.registers.pc += 1;
+        }
         return memory
     }
 }
