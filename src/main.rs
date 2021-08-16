@@ -1,25 +1,116 @@
+use glib::{clone, Continue, MainContext, PRIORITY_DEFAULT};
+use gtk::glib;
+use gtk::{Application, ApplicationWindow, Button, Label, ListBox};
+use gtk::prelude::*;
+
 mod cpu;
 mod memory;
-use std::fs::File;
-use std::io::Read;
-
+use std::io::Write;
+use std::thread;
+use std::{cell::Cell, fs::File, io::Read, rc::Rc};
 
 fn main() {
-    let registers = cpu::Registers::new(0,0,0,0,0,0,0,0,0,0); // * sets starting registers and opcode
-    let operation = cpu::Operation::new(0, 0, 0, 0);
-    let mut main_memory = memory::Memory::new();
-    let mut main_cpu= cpu::Cpu::new(registers, operation);
+    // Create a new application
+    let app = Application::new(Some("org.bezmuth.crab-boy"), Default::default());
+    app.connect_activate(build_ui);
 
-    let mut file=File::open("resources/bios.gb").unwrap(); // ! dirty rom load, please replace this when cartridge controller implemented
-    let mut buf=[0u8;256];
+    // Run the application
+    app.run();
+}
+
+fn build_ui(app: &Application) {
+    /*
+    Create cpu. Just following the gtk docs here, i dont really know
+    how reference counting and cells work in rust
+    */
+    let cpu = Rc::new(Cell::new(create_cpu())); 
+
+    
+    let window = ApplicationWindow::new(app);
+    window.set_title(Some("Crab-boy"));
+
+    // Create ui elements
+    let list_box = ListBox::new();
+    let tick_button = Button::builder()
+        .label("Step")
+        .margin_top(12)
+        .margin_bottom(12)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
+    let dump_button = Button::builder()
+        .label("Dump mem")
+        .margin_top(12)
+        .margin_bottom(12)
+        .margin_start(12)
+        .margin_end(12)
+        .build(); 
+    let label = Label::builder()
+        .label("PC: unint")
+        .build();
+
+    list_box.append(&label);
+    list_box.append(&tick_button);
+    list_box.append(&dump_button);
+
+
+    let (tick_sender, tick_receiver) = MainContext::channel(PRIORITY_DEFAULT);
+    tick_sender.send(cpu.get().get_register_debug_string()).ok();
+    
+    /*
+    Connect callback, look this is jank as shit, but it works so
+    meh. Basically im mixing oop and functional programming (kinda)
+    which isnt exactly the best way to do things, tbh its what i get
+    for not planning around the gui. For now this will remain single
+    threaded, see
+    https://gtk-rs.org/gtk4-rs/stable/latest/book/main_event_loop.html
+    for when you wanna fix that
+    */
+    tick_button.connect_clicked(clone!(@strong cpu => move |_| {
+        cpu.set(cpu.get().tick());
+        let register_dump = cpu.get().get_register_debug_string();
+        
+        tick_sender.send(register_dump).ok();
+    }));
+
+    tick_receiver.attach(
+        None,
+        clone!(@weak label => @default-return Continue(false),
+               move |receiver_data| { // OKAY SO APPARENTLY THIS IS WHERE THE DATA FROM THE SEND THING GETS PASSED, I HAD NO IDEA
+                   label.set_text(&receiver_data); 
+                   Continue(true)
+               }
+        ),
+    );
+
+    dump_button.connect_clicked(move |_| {
+        let memory_dump = cpu.get().get_memory_debug();
+        let mut file = File::create("dump").unwrap();
+        file.write_all(&memory_dump.memory).unwrap();
+    });
+
+    // Add widgets
+    window.set_child(Some(&list_box));
+    
+    window.present();
+}
+
+
+fn create_cpu() -> cpu::Cpu {
+    let registers = cpu::Registers::new(0,0,0,0,0,0,0,0,0,0); // * sets starting registers and opcode
+    let operation = 0;
+    let mut main_memory = memory::Memory::new();
+
+
+    let mut file=File::open("resources/game.gb").unwrap(); // ! dirty rom load, replace this when cartridge controller implemented
+    let mut buf=[0u8;256_000];
     file.read(&mut buf).unwrap();
-    for x in 0..255 { // ! dirty rom into memeory merge, bad method only supports bios at the moment
+    for x in 0..0x8000 { // ! dirty rom into memeory merge, bad method only supports bios at the moment
         main_memory.memory[x] = buf[x];
     }
 
 
-    loop {
-        main_memory = main_cpu.tick(main_memory)
-    }
+    let mut main_cpu = cpu::Cpu::new(registers, operation, main_memory);
 
+    return main_cpu;
 }
