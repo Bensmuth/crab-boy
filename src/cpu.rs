@@ -268,7 +268,7 @@ impl Cpu {
         self.reg.set_flag(Flag::H,half_carry);
         self.reg.set_flag(Flag::C,carry_check);
         
-        self.reg.a.wrapping_add(target_value);
+        self.reg.a = self.reg.a.wrapping_add(target_value);
     }
     // SUB x register to A instructions.
     fn sub_A_x(&mut self, target: RegisterTarget, carry: bool){
@@ -285,7 +285,7 @@ impl Cpu {
         self.reg.set_flag(Flag::N, true);
         self.reg.set_flag(Flag::C,carry_check);
 
-        self.reg.a.wrapping_sub(target_value);
+        self.reg.a = self.reg.a.wrapping_sub(target_value);
     }
     // AND x register with A
     fn and_A_x(&mut self, target: RegisterTarget){
@@ -337,7 +337,7 @@ impl Cpu {
         I have no idea how to fix this, thats for post exam Ben!
         I should probs get a gameboy debugger and compare my behavour to that of the debugger
         */
-        fn nibc(unib : u8, lnib : u8) -> u16 { //combines 2 nibbles, upper nibble and lower nibble - USING THE WRONG TERMINOLOGY HERE, ITS NOT NIBBLES ITS BYTES CAUSE WE DOING A SPECIAL LOAD etc
+        fn nibc(unib : u8, lnib : u8) -> u16 { //combines 2 nibbles, upper nibble and lower nibble - USING THE WRONG TERMINOLOGY HERE, ITS NOT NIBBLES ITS 2 BYTES COMBINED INTO A WORD CAUSE WE DOING A SPECIAL LOAD etc
             (lnib as u16) << 8 | unib as u16
         }
         self.opcode = self.pcc();
