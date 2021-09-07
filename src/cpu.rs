@@ -366,6 +366,10 @@ impl Cpu {
             0x13 => self.inc_target(RegisterTarget::DE),
             0x14 => self.inc_target(RegisterTarget::D),
             0x15 => self.dec_target(RegisterTarget::D),
+            0x16 => {
+                let value = RegisterTarget::Value(self.pcc().into());
+                self.ld_X_x(RegisterTarget::D, value);
+            }
             0x21 =>{ // LD HL, u16
                 self.reg.l = self.pcc();
                 self.reg.h = self.pcc();
@@ -377,6 +381,10 @@ impl Cpu {
             0x23 => self.inc_target(RegisterTarget::HL),
             0x24 => self.inc_target(RegisterTarget::H),
             0x25 => self.dec_target(RegisterTarget::H),
+            0x26 => {
+                let value = RegisterTarget::Value(self.pcc().into());
+                self.ld_X_x(RegisterTarget::H, value);
+            }
             0x31 => { //LD SP, u16
                 let unib = self.pcc();
                 let lnib = self.pcc();
@@ -390,6 +398,10 @@ impl Cpu {
             0x33 => self.inc_target(RegisterTarget::SP),
             0x34 => self.inc_target(self.pointer_convert(RegisterTarget::HL)),
             0x35 => self.dec_target(self.pointer_convert(RegisterTarget::HL)),
+            0x36 => {
+                let value = RegisterTarget::Value(self.pcc().into());
+                self.ld_X_x(RegisterTarget::HL, value);
+            }
             0x76 => { todo!()} // power down the cpu until an interrupt occurs
             0x40..=0x7f => {
                 let first_register : RegisterTarget = ((self.opcode - 0x40) / 8).into();
@@ -422,10 +434,13 @@ impl Cpu {
                 self.xor_A_x(register);
             }
             0xB0..=0xB7 =>{
-                let register = ((self.opcode -0x8) & 0b0000_1111).into();
+                let register = (self.opcode & 0b0000_1111).into();
                 self.or_A_x(register);
             }
-
+            0xB8..=0xBF => {
+                let register = ((self.opcode -0x8) & 0b0000_1111).into();
+                self.cp_A_x(register)
+            }
             0xc3 => { // jump to nn, set pc to nn
                 let unib = self.pcc();
                 let lnib = self.pcc();
