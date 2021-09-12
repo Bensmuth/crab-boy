@@ -1,5 +1,7 @@
 use std::process::exit;
 
+use gtk::BookmarkListBuilder;
+
 #[derive(PartialEq, PartialOrd, Copy, Clone)]
 enum RegisterTarget{
     A, B, C, D, E, H, L, AF, BC, DE, HL, SP, PC, MemoryAdress(u16), Value(u16), UNKNOWN
@@ -234,13 +236,24 @@ impl Cpu {
         let target_value = self.get_target_hl(target);
         return (reg_a_value, target_value as u8)
     }
-    #[inline(always)]
-    fn inc_target(&mut self, target : RegisterTarget) {
-        self.set_target(target, self.get_target(target).wrapping_add(1))
+    fn inc_target(&mut self, target : RegisterTarget, set_flags: bool) {
+        let target_val = self.get_target(target);
+        self.set_target(target, target_val.wrapping_add(1));
+        if set_flags {
+            self.reg.set_flag(Flag::Z, self.get_target(target) == 0);
+            self.reg.set_flag(Flag::N, false);
+            self.reg.set_flag(Flag::H, target_val & 0xf == 0xf);
+        }
     }
-    #[inline(always)]
-    fn dec_target(&mut self, target : RegisterTarget) {
-        self.set_target(target, self.get_target(target).wrapping_sub(1))
+    fn dec_target(&mut self, target : RegisterTarget, set_flags: bool) {
+        let target_val = self.get_target(target);
+        self.set_target(target, target_val.wrapping_sub(1));
+        if set_flags {
+            self.reg.set_flag(Flag::Z, self.get_target(target) == 0);
+            self.reg.set_flag(Flag::N, true);
+            self.reg.set_flag(Flag::H, target_val & 0xf == 0xf);
+        }
+
     }
 
     
@@ -269,6 +282,16 @@ impl Cpu {
         self.reg.set_flag(Flag::C,carry_check);
         
         self.reg.a = self.reg.a.wrapping_add(target_value);
+    }
+    fn add_HL_x(&mut self, target: RegisterTarget) {
+        let (reg_hl_value, mut target_value) = (self.reg.get_hl(), self.get_target(target));
+        let result = reg_hl_value.wrapping_add(target_value);
+        
+        self.reg.set_flag(Flag::N, false);
+        self.reg.set_flag(Flag::H, (reg_hl_value ^ target_value ^ result) & 0x1000 != 0);
+        self.reg.set_flag(Flag::C, reg_hl_value.checked_add(target_value) == None);
+
+        self.reg.set_hl(result);
     }
     // SUB x register to A instructions.
     fn sub_A_x(&mut self, target: RegisterTarget, carry: bool){
@@ -325,6 +348,114 @@ impl Cpu {
         self.sub_A_x(target, false);
         self.reg.a = reg_a_value;
     }
+
+    fn rcla(&mut self) { // rotate A left
+        self.reg.set_flag(Flag::Z, false); // this may be wrong
+        self.reg.set_flag(Flag::N, false);
+        self.reg.set_flag(Flag::C, (self.reg.a >> 7) == 1);
+        self.reg.set_flag(Flag::H, false);
+
+        self.reg.a = self.reg.a.rotate_left(1);
+    }
+
+    fn rla(&mut self) { // rotate A left through carry
+        let newcarry = (self.reg.a >> 7) == 1;
+        let oldcarry = self.reg.get_flag(Flag::C) as u8;
+
+        self.reg.a = (self.reg.a << 1) | oldcarry;
+
+        self.reg.set_flag(Flag::Z, false); // this maybe wrong
+        self.reg.set_flag(Flag::N, false);
+        self.reg.set_flag(Flag::C, newcarry);
+        self.reg.set_flag(Flag::H, false);
+    }
+
+    fn rrca(&mut self) { // rotate A right, old bit [0] to carry
+        self.reg.set_flag(Flag::Z, false); // this may be wrong
+        self.reg.set_flag(Flag::N, false);
+        self.reg.set_flag(Flag::H, false);
+        self.reg.set_flag(Flag::C, (self.reg.a & 1) == 1);
+
+        self.reg.a = self.reg.a.rotate_right(1);
+    }
+
+    fn rra(&mut self) {
+        let oldcarry = self.reg.get_flag(Flag::C) as u8;
+
+        self.reg.set_flag(Flag::C, (self.reg.a & 1) == 1);
+        self.reg.a = (self.reg.a >> 1) | oldcarry << 7;
+
+        self.reg.set_flag(Flag::Z, false); // this may be wrong
+        self.reg.set_flag(Flag::N, false);
+        self.reg.set_flag(Flag::H, false);
+    }
+
+    /*
+    This is a fun instruction. It converts the A register in BCD
+    representation. BCD is funky and is mostly used in some
+    alphanumeric displays. Its fucking insane i have no idea why you'd
+    wanna use this, just use normal binary. I guess it kinda makes
+    sense for human readable binary BUT WHEN THE HELL DOES A PERSON
+    PLAYING A GAMEBOY NEED TO READ BINARY. JESUS NINTY THIS IS A
+    CUSTOM CPU, WHY IS THIS INSTRUCTION HERE????  See:
+    https://ehaskins.com/2018-01-30%20Z80%20DAA/ for more info 
+
+    ----
+
+    Some non gba related thoughts: x86 cpus support operations on BCD
+    data. This is probably because the BIOS in many early computers
+    store the time in BCD, sure it would be easier to just leave the
+    conversion up to program code but hey intel tends to only implment
+    important instructions so they must have a decent reason /s
+
+    According to this page:
+    https://handwiki.org/wiki/Intel_BCD_opcode#Number_representation
+    BCD is used to store decimal numbers in financal software.
+
+    BCD, despite angiring me, is also one of the most important things
+    to happen to computer science and
+    law. https://en.wikipedia.org/wiki/Gottschalk_v._Benson
+    */
+    fn daa(&mut self){
+        let a_value = self.reg.a;
+        let mut adjust = 0;
+
+        if self.reg.get_flag(Flag::H) {
+            adjust |= 0x06;
+        }
+
+        if self.reg.get_flag(Flag::C) {
+            adjust |= 0x60;
+        }
+
+        let res =
+            if self.reg.get_flag(Flag::N) {
+                a_value.wrapping_sub(adjust)
+            } else {
+                if a_value & 0x0f > 0x09 {
+                    adjust |= 0x06
+                }
+
+                if a_value > 0x99 {
+                    adjust |= 0x60
+                }
+
+                a_value.wrapping_add(adjust)
+            };
+
+        self.reg.a = res;
+
+        self.reg.set_flag(Flag::Z, res == 0);
+        self.reg.set_flag(Flag::H, false);
+        self.reg.set_flag(Flag::C, adjust & 0x60 != 0);
+    }
+
+    fn relative_jump(&mut self, condition : bool) {
+        if condition {
+            let to_add = self.pcc() as i8;
+            self.reg.pc = self.reg.pc.wrapping_add(to_add as u16);
+        }
+    }
         
     
 
@@ -350,41 +481,85 @@ impl Cpu {
                 self.reg.b = self.pcc();
             }
             0x02 => self.set_target(self.pointer_convert(RegisterTarget::BC), self.reg.a.into()), // LD (BC), A
-            0x03 => self.inc_target(RegisterTarget::BC),
-            0x04 => self.inc_target(RegisterTarget::B),
-            0x05 => self.dec_target(RegisterTarget::B),
+            0x03 => self.inc_target(RegisterTarget::BC, false),
+            0x04 => self.inc_target(RegisterTarget::B, true),
+            0x05 => self.dec_target(RegisterTarget::B, true),
             0x06 => {
                 let value = RegisterTarget::Value(self.pcc().into());
                 self.ld_X_x(RegisterTarget::B, value);
             }
+            0x07 => self.rcla(),
+            0x08 => { // LD (u16), SP. Store SP & $FF at address u16 and SP >> 8 at address u16 + 1. 
+                let addr = nibc(self.pcc(), self.pcc());
+                let val1 = (self.reg.sp & 0xff) as u8;
+                let val2 = (self.reg.sp >> 8) as u8;
+                self.mem.memory[addr as usize] = val1;
+                self.mem.memory[(addr + 1) as usize] = val2;
+            }
+            0x09 => self.add_HL_x(RegisterTarget::BC),
+            0x0A => self.ld_X_x(RegisterTarget::A, self.pointer_convert(RegisterTarget::BC)),
+            0x0B => self.dec_target(RegisterTarget::BC, false),
+            0x0C => self.inc_target(RegisterTarget::C, true),
+            0x0D => self.dec_target(RegisterTarget::C, true),
+            0x0E => self.reg.c = self.pcc(),
+            0x0F => self.rrca(),
             0x10 => (exit(1)), // STOP
             0x11 => { // LD DE, u16
                 self.reg.e = self.pcc();
                 self.reg.d = self.pcc();
             }
             0x12 => self.set_target(self.pointer_convert(RegisterTarget::DE), self.reg.a.into()),  // LD (DE), A
-            0x13 => self.inc_target(RegisterTarget::DE),
-            0x14 => self.inc_target(RegisterTarget::D),
-            0x15 => self.dec_target(RegisterTarget::D),
+            0x13 => self.inc_target(RegisterTarget::DE, false),
+            0x14 => self.inc_target(RegisterTarget::D, true),
+            0x15 => self.dec_target(RegisterTarget::D, true),
             0x16 => {
                 let value = RegisterTarget::Value(self.pcc().into());
                 self.ld_X_x(RegisterTarget::D, value);
             }
+            0x17 => self.rla(),
+            0x18 => { // Unconditional jump to relative adress. this might be wrong
+                self.relative_jump(true);
+            }
+            0x19 => self.add_HL_x(RegisterTarget::DE),
+            0x1A => self.ld_X_x(RegisterTarget::A, self.pointer_convert(RegisterTarget::DE)),
+            0x1B => self.dec_target(RegisterTarget::DE, false),
+            0x1C => self.inc_target(RegisterTarget::E, true),
+            0x1D => self.dec_target(RegisterTarget::E, true),
+            0x1E => self.reg.e = self.pcc(),
+            0x1F => self.rra(),
+            0x20 => self.relative_jump(! self.reg.get_flag(Flag::Z)),
             0x21 =>{ // LD HL, u16
                 self.reg.l = self.pcc();
                 self.reg.h = self.pcc();
             },
             0x22 => {  // LD (HL+), A
                 self.set_target(self.pointer_convert(RegisterTarget::HL), self.reg.a.into());
-                self.inc_target(RegisterTarget::HL);
+                self.inc_target(RegisterTarget::HL, false);
             },
-            0x23 => self.inc_target(RegisterTarget::HL),
-            0x24 => self.inc_target(RegisterTarget::H),
-            0x25 => self.dec_target(RegisterTarget::H),
+            0x23 => self.inc_target(RegisterTarget::HL, false),
+            0x24 => self.inc_target(RegisterTarget::H, true),
+            0x25 => self.dec_target(RegisterTarget::H, true),
             0x26 => {
                 let value = RegisterTarget::Value(self.pcc().into());
                 self.ld_X_x(RegisterTarget::H, value);
             }
+            0x27 => self.daa(),
+            0x28 => self.relative_jump(self.reg.get_flag(Flag::Z)),
+            0x29 => self.add_HL_x(RegisterTarget::HL),
+            0x2A => {
+                self.ld_X_x(RegisterTarget::A, self.pointer_convert(RegisterTarget::HL));
+                self.inc_target(RegisterTarget::HL, false);
+            }
+            0x2B => self.dec_target(RegisterTarget::HL, false),
+            0x2C => self.inc_target(RegisterTarget::L, true),
+            0x2D => self.dec_target(RegisterTarget::L, true),
+            0x2E => self.reg.l = self.pcc(),
+            0x2F => { // compliment A
+                self.reg.a = ! self.reg.a;
+                self.reg.set_flag(Flag::N, true);
+                self.reg.set_flag(Flag::H, true);
+            },
+            0x30 =>  self.relative_jump(! self.reg.get_flag(Flag::C)),
             0x31 => { //LD SP, u16
                 let unib = self.pcc();
                 let lnib = self.pcc();
@@ -392,16 +567,32 @@ impl Cpu {
 
             },
             0x32 =>{ // LD (HL-), A
-                self.dec_target(RegisterTarget::HL);
                 self.set_target(self.pointer_convert(RegisterTarget::HL), self.reg.a.into());
+                self.dec_target(RegisterTarget::HL, false);
             },
-            0x33 => self.inc_target(RegisterTarget::SP),
-            0x34 => self.inc_target(self.pointer_convert(RegisterTarget::HL)),
-            0x35 => self.dec_target(self.pointer_convert(RegisterTarget::HL)),
+            0x33 => self.inc_target(RegisterTarget::SP, false),
+            0x34 => self.inc_target(self.pointer_convert(RegisterTarget::HL), true),
+            0x35 => self.dec_target(self.pointer_convert(RegisterTarget::HL), true),
             0x36 => {
                 let value = RegisterTarget::Value(self.pcc().into());
                 self.ld_X_x(RegisterTarget::HL, value);
             }
+            0x37 => { // SCF: set carry flag
+                self.reg.set_flag(Flag::N, false);
+                self.reg.set_flag(Flag::H, false);
+                self.reg.set_flag(Flag::C, true);
+            }
+            0x38 => self.relative_jump(self.reg.get_flag(Flag::C)),
+            0x39 => self.add_HL_x(RegisterTarget::SP),
+            0x3A => {
+                self.ld_X_x(RegisterTarget::A, self.pointer_convert(RegisterTarget::HL));
+                self.inc_target(RegisterTarget::HL, false);
+            }
+            0x3B => self.dec_target(RegisterTarget::SP, false),
+            0x3C => self.inc_target(RegisterTarget::A, true),
+            0x3D => self.dec_target(RegisterTarget::A, true),
+            0x3E => self.reg.a = self.pcc(),
+            0x3F => self.reg.set_flag(Flag::C, ! self.reg.get_flag(Flag::C)),
             0x76 => { todo!()} // power down the cpu until an interrupt occurs
             0x40..=0x7f => {
                 let first_register : RegisterTarget = ((self.opcode - 0x40) / 8).into();
@@ -441,10 +632,22 @@ impl Cpu {
                 let register = ((self.opcode -0x8) & 0b0000_1111).into();
                 self.cp_A_x(register)
             }
+            0xc1 => {
+                self.ld_X_x(RegisterTarget::B, self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+                self.ld_X_x(RegisterTarget::C, self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+            }
             0xc3 => { // jump to nn, set pc to nn
                 let unib = self.pcc();
                 let lnib = self.pcc();
                 self.reg.pc = nibc(unib, lnib);
+            }
+            0xc5 => { // push BC onto stack
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::B);
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::C);
             }
             0xcb =>{ // * prefixes
                 self.opcode = self.pcc(); 
@@ -467,6 +670,42 @@ impl Cpu {
                     }
                 }
             },
+            0xd1 => {
+                self.ld_X_x(RegisterTarget::D, self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+                self.ld_X_x(RegisterTarget::E, self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+            }
+            0xd5 => {
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::D);
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::E);
+            }
+            0xe1 => {
+                self.ld_X_x(RegisterTarget::H, self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+                self.ld_X_x(RegisterTarget::L, self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+            }
+            0xe5 => {
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::H);
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::L);
+            }
+            0xf1 => {
+                self.ld_X_x(RegisterTarget::A, self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+                self.reg.f = self.get_target_hl(self.pointer_convert(RegisterTarget::SP));
+                self.inc_target(RegisterTarget::SP, false);
+            }  
+            0xf5 => {
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::D);
+                self.dec_target(RegisterTarget::SP, false);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::Value(self.reg.f.into()));
+            }
             _ => {
                 println!("Unimplemented instruction {:x}", self.opcode);
                 println!("Register Dump as hex: ");
