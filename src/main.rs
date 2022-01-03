@@ -7,7 +7,7 @@ mod cpu;
 mod memory;
 use std::io::Write;
 use std::thread;
-use std::{cell::Cell, fs::File, io::Read, rc::Rc};
+use std::{fs::File, io::Read, sync::{Arc, Mutex}};
 
 fn main() {
     // Create a new application
@@ -23,7 +23,7 @@ fn build_ui(app: &Application) {
     Create cpu. Just following the gtk docs here, i dont really know
     how reference counting and cells work in rust
     */
-    let cpu = Rc::new(Cell::new(create_cpu())); 
+    let cpu = Arc::new(Mutex::new(create_cpu()));
 
     
     let window = ApplicationWindow::new(app);
@@ -44,7 +44,14 @@ fn build_ui(app: &Application) {
         .margin_bottom(12)
         .margin_start(12)
         .margin_end(12)
-        .build(); 
+        .build();
+    let go_button = Button::builder()
+        .label("Go")
+        .margin_top(12)
+        .margin_bottom(12)
+        .margin_start(12)
+        .margin_end(12)
+        .build();
     let label = Label::builder()
         .label("PC: unint")
         .build();
@@ -52,10 +59,11 @@ fn build_ui(app: &Application) {
     list_box.append(&label);
     list_box.append(&tick_button);
     list_box.append(&dump_button);
+    list_box.append(&go_button);
 
 
-    let (tick_sender, tick_receiver) = MainContext::channel(PRIORITY_DEFAULT);
-    tick_sender.send(cpu.get().get_register_debug_string()).ok();
+    let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
+    sender.send(cpu.lock().unwrap().get_register_debug_string()).ok();
     
     /*
     Connect callback, look this is jank as shit, but it works so
@@ -65,15 +73,35 @@ fn build_ui(app: &Application) {
     threaded, see
     https://gtk-rs.org/gtk4-rs/stable/latest/book/main_event_loop.html
     for when you wanna fix that
-    */
-    tick_button.connect_clicked(clone!(@strong cpu => move |_| {
-        cpu.set(cpu.get().tick());
-        let register_dump = cpu.get().get_register_debug_string();
+     */
+    tick_button.connect_clicked(
+        clone!(@strong cpu, @strong sender => move |_| { // TODO read the move and clone! docs
+            let mut cpu = cpu.lock().unwrap();
+            cpu.tick();
+            let register_dump = cpu.get_register_debug_string();
         
-        tick_sender.send(register_dump).ok();
-    }));
+            sender.send(register_dump).ok();
+        }
+    ));
 
-    tick_receiver.attach(
+    go_button.connect_clicked(
+        clone!(@strong cpu, @strong sender => move |_| {
+            thread::spawn( // okay this is threaded now, might be a better way to do this
+                clone!(@strong cpu, @strong sender => move || {
+                    for _ in 0..99999999 {
+                        let mut cpu = cpu.lock().unwrap();
+                        cpu.tick();
+                        let register_dump = cpu.get_register_debug_string();
+
+                        sender.send(register_dump).ok();
+                    }
+                }
+            ));
+        }
+    ));
+
+
+    receiver.attach(
         None,
         clone!(@weak label => @default-return Continue(false),
                move |receiver_data| { // OKAY SO APPARENTLY THIS IS WHERE THE DATA FROM THE SEND THING GETS PASSED, I HAD NO IDEA
@@ -84,10 +112,12 @@ fn build_ui(app: &Application) {
     );
 
     dump_button.connect_clicked(move |_| {
-        let memory_dump = cpu.get().get_memory_debug();
+        let memory_dump = cpu.lock().unwrap().get_memory_debug();
         let mut file = File::create("dump").unwrap();
         file.write_all(&memory_dump.memory).unwrap();
     });
+
+
 
     // Add widgets
     window.set_child(Some(&list_box));

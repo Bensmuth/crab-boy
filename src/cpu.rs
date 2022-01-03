@@ -293,6 +293,7 @@ impl Cpu {
 
         self.reg.set_hl(result);
     }
+
     // SUB x register to A instructions.
     fn sub_A_x(&mut self, target: RegisterTarget, carry: bool){
         let (reg_a_value, mut target_value) = self.get_a_and_target_hl(target);
@@ -456,18 +457,37 @@ impl Cpu {
             self.reg.pc = self.reg.pc.wrapping_add(to_add as u16);
         }
     }
+
+    fn pop_byte(&mut self) -> u8{
+        self.reg.sp += 1;
+        self.mem.memory[(self.reg.sp-1) as usize]
+    }
+
+    fn pop_word(&mut self) -> u16 {
+        let lo = self.pop_byte();
+        let hi = self.pop_byte();
+
+        (hi as u16) << 8 | lo as u16
+    }
+
+    fn push_byte(&mut self, val:u8) {
+        self.reg.sp -= 1;
+        self.mem.memory[self.reg.sp as usize] = val
+    }
+
+    fn push_word(&mut self, val:u16){
+        self.push_byte((val >> 8) as u8);
+        self.push_byte(val as u8);
+    }
+
+    fn rst(&mut self, addr:u16){
+        self.push_word(self.reg.pc);
+        self.reg.pc = addr;
+    }
         
     
 
-    pub fn tick(&mut self) -> Cpu{
-        /*
-        Aight so theres a little issue here, the bios runs for a bit then it
-        moves into uninitialized memory and NOP slides to the end of the
-        memory array causing an overflow. Its something to do with
-        instruction 0x20 and 0xcb -> 0x7c. Debug the code to see what i mean.
-        I have no idea how to fix this, thats for post exam Ben!
-        I should probs get a gameboy debugger and compare my behavour to that of the debugger
-        */
+    pub fn tick(&mut self){
         fn nibc(unib : u8, lnib : u8) -> u16 { //combines 2 nibbles, upper nibble and lower nibble - USING THE WRONG TERMINOLOGY HERE, ITS NOT NIBBLES ITS 2 BYTES COMBINED INTO A WORD CAUSE WE DOING A SPECIAL LOAD etc
             (lnib as u16) << 8 | unib as u16
         }
@@ -475,7 +495,7 @@ impl Cpu {
 
         match self.opcode { // * massive switch that implements all the cpu functions
             // ! perhaps move each instruction into its own function, will shorten code, but at cost of increased complexity
-            0x0 => println!("NOP at {:x}", self.reg.pc), // No Operation (NOP)
+            0x0 => {}, // No Operation (NOP)
             0x01 => { // LD BC, u16
                 self.reg.c = self.pcc();
                 self.reg.b = self.pcc();
@@ -632,22 +652,51 @@ impl Cpu {
                 let register = ((self.opcode -0x8) & 0b0000_1111).into();
                 self.cp_A_x(register)
             }
+            0xc0 => { // pop word from stack and jump if Z flag is 0
+                if !self.reg.get_flag(Flag::Z) {
+                    self.reg.pc = self.pop_word();
+                }
+            }
             0xc1 => {
-                self.ld_X_x(RegisterTarget::B, self.pointer_convert(RegisterTarget::SP));
-                self.inc_target(RegisterTarget::SP, false);
-                self.ld_X_x(RegisterTarget::C, self.pointer_convert(RegisterTarget::SP));
-                self.inc_target(RegisterTarget::SP, false);
+                let val = self.pop_word();
+                self.reg.set_bc(val);
+            }
+            0xc2 => {
+                if !self.reg.get_flag(Flag::Z){
+                    let unib = self.pcc();
+                    let lnib = self.pcc();
+                    self.reg.pc = nibc(unib,lnib);
+                }
             }
             0xc3 => { // jump to nn, set pc to nn
                 let unib = self.pcc();
                 let lnib = self.pcc();
                 self.reg.pc = nibc(unib, lnib);
             }
-            0xc5 => { // push BC onto stack
-                self.dec_target(RegisterTarget::SP, false);
-                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::B);
-                self.dec_target(RegisterTarget::SP, false);
-                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::C);
+            0xc4 => {
+                todo!();
+            }
+            0xc5 => { // push BC onto stacks
+                self.push_word(self.reg.get_bc())
+            }
+            0xc6 => {
+                let value = RegisterTarget::Value(self.pcc().into());
+                self.add_A_x(value, true)
+            }
+            0xc7 => {
+                self.rst(0x0);
+            }
+            0xc8 => {
+                if !self.reg.get_flag(Flag::C) {
+                    self.reg.pc = self.pop_word();
+                }
+            }
+            0xca => {
+                if self.reg.get_flag(Flag::Z){
+                    let unib = self.pcc();
+                    let lnib = self.pcc();
+                    self.reg.pc = nibc(unib, lnib);
+                }
             }
             0xcb =>{ // * prefixes
                 self.opcode = self.pcc(); 
@@ -670,29 +719,89 @@ impl Cpu {
                     }
                 }
             },
+            0xcf => {
+                self.rst(0x08)
+            }
+            0xd0 => {
+                if !self.reg.get_flag(Flag::C) {
+                    self.reg.pc = self.pop_word();
+                }
+            }
             0xd1 => {
-                self.ld_X_x(RegisterTarget::D, self.pointer_convert(RegisterTarget::SP));
-                self.inc_target(RegisterTarget::SP, false);
-                self.ld_X_x(RegisterTarget::E, self.pointer_convert(RegisterTarget::SP));
-                self.inc_target(RegisterTarget::SP, false);
+                let val = self.pop_word();
+                self.reg.set_de(val);
+            }
+            0xd2 => {
+                if !self.reg.get_flag(Flag::C){
+                    let unib = self.pcc();
+                    let lnib = self.pcc();
+                    self.reg.pc = nibc(unib,lnib);
+                }
             }
             0xd5 => {
-                self.dec_target(RegisterTarget::SP, false);
-                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::D);
-                self.dec_target(RegisterTarget::SP, false);
-                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::E);
+                self.push_word(self.reg.get_de())
+            }
+            0xd6 => {
+                let value = RegisterTarget::Value(self.pcc().into());
+                self.sub_A_x(value, true)
+            }
+            0xd7 => {
+                self.rst(0x10)
+            }
+            0xd8 => {
+                if self.reg.get_flag(Flag::C) {
+                    self.reg.pc = self.pop_word();
+                }
+            }
+            0xda => {
+                if self.reg.get_flag(Flag::C){
+                    let unib = self.pcc();
+                    let lnib = self.pcc();
+                    self.reg.pc = nibc(unib,lnib);
+                }
+            }
+            0xdf => {
+                self.rst(0x18)
+            }
+            0xe0 => {
+                let addr = 0xff00 + self.pcc() as u16;
+                self.ld_X_x(RegisterTarget::MemoryAdress(addr), RegisterTarget::A)
             }
             0xe1 => {
-                self.ld_X_x(RegisterTarget::H, self.pointer_convert(RegisterTarget::SP));
-                self.inc_target(RegisterTarget::SP, false);
-                self.ld_X_x(RegisterTarget::L, self.pointer_convert(RegisterTarget::SP));
-                self.inc_target(RegisterTarget::SP, false);
+                let val = self.pop_word();
+                self.reg.set_hl(val);
             }
             0xe5 => {
-                self.dec_target(RegisterTarget::SP, false);
-                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::H);
-                self.dec_target(RegisterTarget::SP, false);
-                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::L);
+                self.push_word(self.reg.get_hl())
+            }
+            0xe6 => {
+                let value = RegisterTarget::Value(self.pcc().into());
+                self.and_A_x(value)
+            }
+            0xe7 => {
+                self.rst(0x20)
+            }
+            0xe8 => {
+                let (reg_sp_value, mut target_value) = (self.reg.sp as i32, self.pcc() as i32);
+
+                let result = reg_sp_value.wrapping_add(target_value);
+
+                let carry_check = ((reg_sp_value ^ target_value ^ result) & 0x100 != 0);
+                let half_carry = ((reg_sp_value ^ target_value ^ result) & 0x10 != 0);
+
+                self.reg.set_flag(Flag::Z,false);
+                self.reg.set_flag(Flag::N, false);
+                self.reg.set_flag(Flag::H,half_carry);
+                self.reg.set_flag(Flag::C,carry_check);
+
+                self.reg.sp = result as u16;
+            }
+            0xef => {
+                self.rst(0x28)
+            }
+            0xf0 => {
+                let addr = 0xff00 + self.pcc() as u16;
+                self.ld_X_x(RegisterTarget::A, RegisterTarget::MemoryAdress(addr))
             }
             0xf1 => {
                 self.ld_X_x(RegisterTarget::A, self.pointer_convert(RegisterTarget::SP));
@@ -702,9 +811,34 @@ impl Cpu {
             }  
             0xf5 => {
                 self.dec_target(RegisterTarget::SP, false);
-                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::D);
+                self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::A);
                 self.dec_target(RegisterTarget::SP, false);
                 self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::Value(self.reg.f.into()));
+            }
+            0xf6 => {
+                let value = RegisterTarget::Value(self.pcc().into());
+                self.or_A_x(value)
+            }
+            0xf7 => {
+                self.rst(0x30)
+            }
+            0xf8 => {
+                let (reg_sp_value, mut target_value) = (self.reg.sp as i32, self.pcc() as i32);
+
+                let result = reg_sp_value.wrapping_add(target_value);
+
+                let carry_check = ((reg_sp_value ^ target_value ^ result) & 0x100 != 0);
+                let half_carry = ((reg_sp_value ^ target_value ^ result) & 0x10 != 0);
+
+                self.reg.set_flag(Flag::Z,false);
+                self.reg.set_flag(Flag::N, false);
+                self.reg.set_flag(Flag::H,half_carry);
+                self.reg.set_flag(Flag::C,carry_check);
+
+                self.reg.set_hl(result as u16);
+            }
+            0xff => {
+                self.rst(0x38)
             }
             _ => {
                 println!("Unimplemented instruction {:x}", self.opcode);
@@ -714,6 +848,5 @@ impl Cpu {
                 exit(0);
             }
         }
-        return *self;
     }
 }
