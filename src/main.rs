@@ -1,7 +1,15 @@
 use glib::{clone, Continue, MainContext, PRIORITY_DEFAULT};
 use gtk::glib;
-use gtk::{Application, ApplicationWindow, Button, Label, ListBox};
-use gtk::prelude::*;
+//use gtk::{Application, Button, Label, ListBox, Orientation};
+//use gtk::prelude::*;
+
+//use adw::prelude::*;
+//use adw::{ActionRow, ApplicationWindow, HeaderBar};
+
+use adw::prelude::*;
+
+use adw::{ActionRow, ApplicationWindow, HeaderBar};
+use gtk::{Application, Box, ListBox, Orientation, Button, Label};
 
 mod cpu;
 mod memory;
@@ -11,7 +19,14 @@ use std::{fs::File, io::Read, sync::{Arc, Mutex}};
 
 fn main() {
     // Create a new application
-    let app = Application::new(Some("org.bezmuth.crab-boy"), Default::default());
+    let app = Application::builder()
+        .application_id("org.bezmuth.crab-boy")
+        .build();
+
+    app.connect_startup(|_| {
+        adw::init();
+    });
+
     app.connect_activate(build_ui);
 
     // Run the application
@@ -25,12 +40,15 @@ fn build_ui(app: &Application) {
     */
     let cpu = Arc::new(Mutex::new(create_cpu()));
 
-    
-    let window = ApplicationWindow::new(app);
-    window.set_title(Some("Crab-boy"));
-
     // Create ui elements
-    let list_box = ListBox::new();
+    let list = ListBox::builder()
+        .margin_top(0)
+        .margin_end(0)
+        .margin_bottom(0)
+        .margin_start(0)
+         // the content class makes the list look nicer
+        .css_classes(vec![String::from("content")])
+        .build();
     let tick_button = Button::builder()
         .label("Step")
         .margin_top(12)
@@ -56,10 +74,20 @@ fn build_ui(app: &Application) {
         .label("PC: unint")
         .build();
 
-    list_box.append(&label);
-    list_box.append(&tick_button);
-    list_box.append(&dump_button);
-    list_box.append(&go_button);
+    list.append(&label);
+    list.append(&tick_button);
+    list.append(&dump_button);
+    list.append(&go_button);
+
+    // Combine the content in a box
+    let content = Box::new(Orientation::Vertical, 0);
+    // Adwaitas' ApplicationWindow does not include a HeaderBar
+    content.append(
+        &HeaderBar::builder()
+            .title_widget(&adw::WindowTitle::new("Crab Boy", ""))
+            .build(),
+    );
+    content.append(&list);
 
 
     let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
@@ -88,7 +116,7 @@ fn build_ui(app: &Application) {
         clone!(@strong cpu, @strong sender => move |_| {
             thread::spawn( // okay this is threaded now, might be a better way to do this
                 clone!(@strong cpu, @strong sender => move || {
-                    for _ in 0..99999999 {
+                    for _ in 0..10000 {
                         let mut cpu = cpu.lock().unwrap();
                         cpu.tick();
                         let register_dump = cpu.get_register_debug_string();
@@ -119,10 +147,13 @@ fn build_ui(app: &Application) {
 
 
 
-    // Add widgets
-    window.set_child(Some(&list_box));
-    
-    window.present();
+    let window = ApplicationWindow::builder()
+        .application(app)
+        .default_width(350)
+         // add content to window
+        .content(&content)
+        .build();
+    window.show();
 }
 
 

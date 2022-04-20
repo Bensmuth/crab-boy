@@ -1,8 +1,8 @@
 use std::process::exit;
 
-use gtk::BookmarkListBuilder;
+//use gtk::BookmarkListBuilder;
 
-#[derive(PartialEq, PartialOrd, Copy, Clone)]
+#[derive(PartialEq, PartialOrd, Copy, Clone, Debug)]
 enum RegisterTarget{
     A, B, C, D, E, H, L, AF, BC, DE, HL, SP, PC, MemoryAdress(u16), Value(u16), UNKNOWN
 }
@@ -129,20 +129,21 @@ impl Registers{
 pub struct Cpu {
     reg: Registers,
     opcode: u8,
-    mem: super::memory::Memory
+    mem: super::memory::Memory,
+    interupts_enabled: bool,
 
 }
 
 impl Cpu {
     pub fn new(reg : Registers, operation : u8, mem : super::memory::Memory) -> Cpu{
-        let mut new_cpu = Cpu { reg, opcode : operation, mem};
+        let mut new_cpu = Cpu { reg, opcode : operation, mem, interupts_enabled : true};
         // pseudo bios - CHECK THIS, IM NOT SURE IF IT WORKS
         new_cpu.reg.pc = 0x100;
         new_cpu.reg.set_af(0x01B0);
         new_cpu.reg.set_bc(0x0013);
         new_cpu.reg.set_de(0x00D8);
         new_cpu.reg.set_hl(0x014D);
-        new_cpu.reg.sp = 0xFFFF;
+        new_cpu.reg.sp = 0xFFFE;
         new_cpu.reg.set_flag(Flag::Z, true);
         new_cpu.reg.set_flag(Flag::H, true);
         new_cpu.reg.set_flag(Flag::C, true);
@@ -178,7 +179,7 @@ impl Cpu {
             RegisterTarget::SP => {self.reg.sp},
             RegisterTarget::MemoryAdress(adress) => {self.mem.clone().get(adress).into()},
             RegisterTarget::Value(val) => {val},
-            _ => panic!(),
+            _ => panic!("{:?}", register),
 
         }
     }
@@ -198,7 +199,7 @@ impl Cpu {
             RegisterTarget::DE => {self.reg.set_de(value)},
             RegisterTarget::SP => {self.reg.sp = value},
             RegisterTarget::MemoryAdress(adress) => {self.mem.set(adress, value as u8)},
-            _ => panic!()
+            _ => panic!("{:?}: value: {}", register, value),
 
         }
     }
@@ -452,9 +453,10 @@ impl Cpu {
     }
 
     fn relative_jump(&mut self, condition : bool) {
+        let to_add = self.pcc() as i8; // gotta increment the program counter even if we dont do anything
         if condition {
-            let to_add = self.pcc() as i8;
-            self.reg.pc = self.reg.pc.wrapping_add(to_add as u16);
+            let temp_pc = self.reg.pc as i16;
+            self.reg.pc = temp_pc.wrapping_add(to_add as i16) as u16;
         }
     }
 
@@ -615,12 +617,12 @@ impl Cpu {
             0x3F => self.reg.set_flag(Flag::C, ! self.reg.get_flag(Flag::C)),
             0x76 => { todo!()} // power down the cpu until an interrupt occurs
             0x40..=0x7f => {
-                let first_register : RegisterTarget = ((self.opcode - 0x40) / 8).into();
-                let target_register : RegisterTarget = (self.opcode & 0b0000_1111).into();
-                self.ld_X_x(first_register, target_register);
+                let target : RegisterTarget = ((self.opcode - 0x40) / 8).into();
+                let val : RegisterTarget = ((self.opcode % 8) & 0b0000_1111).into();
+                self.ld_X_x(target, val);
             }
-            0x80..=0x87 => {
-                let register = (self.opcode & 0b0000_1111).into();
+            0x80..=0x87 => { // could collapse these two branches into a single satement
+                let register: RegisterTarget = (self.opcode & 0b0000_1111).into();
                 self.add_A_x(register, false)
                 
             }
@@ -808,7 +810,10 @@ impl Cpu {
                 self.inc_target(RegisterTarget::SP, false);
                 self.reg.f = self.get_target_hl(self.pointer_convert(RegisterTarget::SP));
                 self.inc_target(RegisterTarget::SP, false);
-            }  
+            }
+            0xf3 => {
+                self.interupts_enabled = false; // TODO implement interupts
+            }
             0xf5 => {
                 self.dec_target(RegisterTarget::SP, false);
                 self.ld_X_x(self.pointer_convert(RegisterTarget::SP), RegisterTarget::A);
@@ -827,8 +832,8 @@ impl Cpu {
 
                 let result = reg_sp_value.wrapping_add(target_value);
 
-                let carry_check = ((reg_sp_value ^ target_value ^ result) & 0x100 != 0);
-                let half_carry = ((reg_sp_value ^ target_value ^ result) & 0x10 != 0);
+                let carry_check = (reg_sp_value ^ target_value ^ result) & 0x100 != 0;
+                let half_carry = (reg_sp_value ^ target_value ^ result) & 0x10 != 0;
 
                 self.reg.set_flag(Flag::Z,false);
                 self.reg.set_flag(Flag::N, false);
@@ -836,6 +841,13 @@ impl Cpu {
                 self.reg.set_flag(Flag::C,carry_check);
 
                 self.reg.set_hl(result as u16);
+            }
+            0xfb => {
+                self.interupts_enabled = true;
+            }
+            0xfe => {
+                let val = self.pcc().into();
+                self.cp_A_x(RegisterTarget::Value(val))
             }
             0xff => {
                 self.rst(0x38)
