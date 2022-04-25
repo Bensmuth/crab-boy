@@ -1,5 +1,12 @@
 use glib::{clone, Continue, MainContext, PRIORITY_DEFAULT};
 use gtk::glib;
+// Should perhaps switch to an easier to understand gui library like https://relm4.org/
+//
+//
+// Check out
+// https://gtk-rs.org/gtk-rs-core/git/docs/gdk_pixbuf/struct.Pixbuf.html for
+// drawing the screen.
+
 //use gtk::{Application, Button, Label, ListBox, Orientation};
 //use gtk::prelude::*;
 
@@ -8,7 +15,7 @@ use gtk::glib;
 
 use adw::prelude::*;
 
-use adw::{ActionRow, ApplicationWindow, HeaderBar};
+use adw::{ApplicationWindow, HeaderBar};
 use gtk::{Application, Box, ListBox, Orientation, Button, Label};
 
 mod cpu;
@@ -116,7 +123,7 @@ fn build_ui(app: &Application) {
         clone!(@strong cpu, @strong sender => move |_| {
             thread::spawn( // okay this is threaded now, might be a better way to do this
                 clone!(@strong cpu, @strong sender => move || {
-                    for _ in 0..10000 {
+                    for _ in 0..100000 {
                         let mut cpu = cpu.lock().unwrap();
                         cpu.tick();
                         let register_dump = cpu.get_register_debug_string();
@@ -145,8 +152,6 @@ fn build_ui(app: &Application) {
         file.write_all(&memory_dump.memory).unwrap();
     });
 
-
-
     let window = ApplicationWindow::builder()
         .application(app)
         .default_width(350)
@@ -158,8 +163,7 @@ fn build_ui(app: &Application) {
 
 
 fn create_cpu() -> cpu::Cpu {
-    let registers = cpu::Registers::new(0,0,0,0,0,0,0,0,0,0); // * sets starting registers and opcode
-    let operation = 0;
+    let registers = cpu::Registers::new(); // * sets starting registers and opcode
     let mut main_memory = memory::Memory::new();
 
 
@@ -170,8 +174,7 @@ fn create_cpu() -> cpu::Cpu {
         main_memory.memory[x] = buf[x];
     }
 
-
-    let mut main_cpu = cpu::Cpu::new(registers, operation, main_memory);
+    let main_cpu = cpu::Cpu::new(registers,  main_memory);
 
     return main_cpu;
 }

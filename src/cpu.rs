@@ -67,8 +67,8 @@ pub struct Registers{
 
 
 impl Registers{
-    pub fn new(a : u8, f : u8, b : u8, c : u8, d : u8, e : u8, h : u8, l : u8, sp : u16, pc : u16) -> Registers{
-        Registers {a, f, b, c, d, e, h, l, sp, pc }
+    pub fn new() -> Registers{
+        Registers {a:0, f:0, b:0, c:0, d:0, e:0, h:0, l:0, sp:0, pc:0 }
     }
 
     pub fn get_flag(&self, f:Flag) -> bool{
@@ -82,9 +82,6 @@ impl Registers{
             self.f &= f.bw(); // & is and operator, sets flag by merge techniques i think, stolen from mohanson
         }
     }
-
-
-
 
     // * reg can be combined as AF, BC, DE, HL
     pub fn get_af(&self) -> u16 {
@@ -135,8 +132,8 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    pub fn new(reg : Registers, operation : u8, mem : super::memory::Memory) -> Cpu{
-        let mut new_cpu = Cpu { reg, opcode : operation, mem, interupts_enabled : true};
+    pub fn new(reg : Registers, mem : super::memory::Memory) -> Cpu{
+        let mut new_cpu = Cpu { reg, opcode : 0, mem, interupts_enabled : true};
         // pseudo bios - CHECK THIS, IM NOT SURE IF IT WORKS
         new_cpu.reg.pc = 0x100;
         new_cpu.reg.set_af(0x01B0);
@@ -156,13 +153,9 @@ impl Cpu {
         // if e1
         // spd 0
         // rom 1
-        // TODO implement all these and the ime, see https://gbdev.gg8.se/wiki/ for more info
-
+        // TODO implement all these and the ime, see https://gbdev.io/pandocs/ for more info
         new_cpu
-
-
     }
-
     fn get_target(&self, register : RegisterTarget) -> u16{ // return u16 cause of special registers, TODO implement for all combined registers
         match register {
             RegisterTarget::A => {self.reg.a.into()}
@@ -180,10 +173,8 @@ impl Cpu {
             RegisterTarget::MemoryAdress(adress) => {self.mem.clone().get(adress).into()},
             RegisterTarget::Value(val) => {val},
             _ => panic!("{:?}", register),
-
         }
     }
-
     fn set_target(&mut self, register: RegisterTarget, value : u16) {
         match register {
             RegisterTarget::A => {self.reg.a = value as u8}
@@ -203,26 +194,21 @@ impl Cpu {
 
         }
     }
-
     pub fn get_register_debug_string(&mut self) -> String{
         format!("PC: {:x}, OpCode {:x} \nRegisters \na: {:x}, f: {:x} \nb: {:x} c: {:x} \nd: {:x} e:{:x} \nh:{:x} l: {:x} \nsp: {:x} pc: {:x}", self.reg.pc, self.mem.clone().get(self.reg.pc), self.reg.a, self.reg.f, self.reg.b, self.reg.c, self.reg.d, self.reg.e, self.reg.h, self.reg.l, self.reg.sp, self.reg.pc)
     }
-
     pub fn get_memory_debug(&mut self) -> super::memory::Memory {
         self.mem
     }
-    
     fn pcc(&mut self) -> u8{ //program counter call, use this whenever iterating pc and wanting to get something from memory in that iteration
         let v = self.mem.get(self.reg.pc);
         self.reg.pc = self.reg.pc.wrapping_add(1);
         v
     }
-
     #[inline(always)]
     fn pointer_convert(&self, target: RegisterTarget) -> RegisterTarget { // converts (hl) pointers to my method of pointers (works for other pointers)
         RegisterTarget::MemoryAdress(self.get_target(target))
     }
-    #[inline(always)]
     fn get_target_hl(&mut self, target: RegisterTarget) -> u8{
         return if target == RegisterTarget::HL{
             self.get_target(RegisterTarget::MemoryAdress(self.get_target(RegisterTarget::HL))) as u8
@@ -230,8 +216,6 @@ impl Cpu {
             self.get_target(target) as u8
         }
     }
-
-    #[inline(always)]
     fn get_a_and_target_hl(&mut self, target : RegisterTarget) -> (u8, u8) { // okay this function is kinda pointless now but i used it for most of the alu instructions so whatever
         let reg_a_value = self.reg.a;
         let target_value = self.get_target_hl(target);
@@ -256,8 +240,6 @@ impl Cpu {
         }
 
     }
-
-    
     // Instructions
     // Load x value into X
     fn ld_X_x(&mut self, mut X : RegisterTarget, x: RegisterTarget) {
@@ -314,7 +296,7 @@ impl Cpu {
     }
     // AND x register with A
     fn and_A_x(&mut self, target: RegisterTarget){
-        let (reg_a_value, mut target_value) = self.get_a_and_target_hl(target);
+        let (reg_a_value, target_value) = self.get_a_and_target_hl(target);
 
         
         self.reg.a = reg_a_value & target_value;
@@ -326,7 +308,7 @@ impl Cpu {
     }
     // XOR x register with A
     fn xor_A_x(&mut self, target: RegisterTarget){
-        let (reg_a_value, mut target_value) = self.get_a_and_target_hl(target);
+        let (reg_a_value, target_value) = self.get_a_and_target_hl(target);
 
         self.reg.a = reg_a_value ^ target_value;
         self.reg.set_flag(Flag::Z, self.reg.a == 0);
@@ -336,7 +318,7 @@ impl Cpu {
     }
     // OR x register with A
     fn or_A_x(&mut self, target: RegisterTarget){
-        let (reg_a_value, mut target_value) = self.get_a_and_target_hl(target);
+        let (reg_a_value, target_value) = self.get_a_and_target_hl(target);
 
         self.reg.a = reg_a_value | target_value;
         self.reg.set_flag(Flag::Z, self.reg.a == 0);
