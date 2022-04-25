@@ -11,7 +11,7 @@ use gtk::glib;
 //use gtk::prelude::*;
 
 //use adw::prelude::*;
-//use adw::{ActionRow, ApplicationWindow, HeaderBar};
+//use adw::{ActionRow, ApplicationWindow, HeaderBar}
 
 use adw::prelude::*;
 
