@@ -51,8 +51,8 @@ fn main() -> Result<(), Error> {
     };
     let mut display = Display::new(WIDTH, HEIGHT);
 
-    let cpu = Rc::new(RefCell::new(create_cpu()));
-    let mut gui = Gui::new(&window, &pixels, cpu);
+    let mut cpu = create_cpu();
+    let mut gui = Gui::new(&window, &pixels);
 
     event_loop.run(move |event, _, control_flow| {
         // Draw the current frame
@@ -69,10 +69,12 @@ fn main() -> Result<(), Error> {
                 context.scaling_renderer.render(encoder, render_target);
 
                 // Render Dear ImGui
-                gui.render(&window, encoder, render_target, context)?;
+                gui.render(&window, encoder, render_target, context, &mut cpu)?;
 
                 Ok(())
             });
+
+            cpu.tick();
 
             // Basic error handling
             if render_result
