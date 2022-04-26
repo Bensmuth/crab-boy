@@ -194,7 +194,7 @@ impl Cpu {
 
         }
     }
-    pub fn get_register_debug_string(&mut self) -> String{
+    pub fn get_register_debug_string(&self) -> String{
         format!("PC: {:x}, OpCode {:x} \nRegisters \na: {:x}, f: {:x} \nb: {:x} c: {:x} \nd: {:x} e:{:x} \nh:{:x} l: {:x} \nsp: {:x} pc: {:x}", self.reg.pc, self.mem.clone().get(self.reg.pc), self.reg.a, self.reg.f, self.reg.b, self.reg.c, self.reg.d, self.reg.e, self.reg.h, self.reg.l, self.reg.sp, self.reg.pc)
     }
     pub fn get_memory_debug(&mut self) -> super::memory::Memory {
