@@ -1,164 +1,113 @@
-use glib::{clone, Continue, MainContext, PRIORITY_DEFAULT};
-use gtk::glib;
-// Should perhaps switch to an easier to understand gui library like https://relm4.org/
-//
-//
-// Check out
-// https://gtk-rs.org/gtk-rs-core/git/docs/gdk_pixbuf/struct.Pixbuf.html for
-// drawing the screen.
+use crate::gui::Gui;
+use log::error;
+use pixels::{Error, Pixels, SurfaceTexture};
+use winit::dpi::LogicalSize;
+use winit::event::{Event, VirtualKeyCode};
+use winit::event_loop::{ControlFlow, EventLoop};
+use winit::window::WindowBuilder;
+use winit_input_helper::WinitInputHelper;
 
-//use gtk::{Application, Button, Label, ListBox, Orientation};
-//use gtk::prelude::*;
+mod gui;
 
-//use adw::prelude::*;
-//use adw::{ActionRow, ApplicationWindow, HeaderBar};
-
-use adw::prelude::*;
-
-use adw::{ApplicationWindow, HeaderBar};
-use gtk::{Application, Box, ListBox, Orientation, Button, Label};
+const WIDTH: u32 = 640;
+const HEIGHT: u32 = 480;
+const BOX_SIZE: i16 = 64;
 
 mod cpu;
 mod memory;
-use std::io::Write;
-use std::thread;
 use std::{fs::File, io::Read, sync::{Arc, Mutex}};
+use std::rc::Rc;
+use std::cell::{RefCell, RefMut};
 
-fn main() {
-    // Create a new application
-    let app = Application::builder()
-        .application_id("org.bezmuth.crab-boy")
-        .build();
-
-    app.connect_startup(|_| {
-        adw::init();
-    });
-
-    app.connect_activate(build_ui);
-
-    // Run the application
-    app.run();
+struct Display {
+    width: i16,
+    height: i16,
+    box_x: i16,
+    box_y: i16,
 }
 
-fn build_ui(app: &Application) {
-    /*
-    Create cpu. Just following the gtk docs here, i dont really know
-    how reference counting and cells work in rust
-    */
-    let cpu = Arc::new(Mutex::new(create_cpu()));
+fn main() -> Result<(), Error> {
 
-    // Create ui elements
-    let list = ListBox::builder()
-        .margin_top(0)
-        .margin_end(0)
-        .margin_bottom(0)
-        .margin_start(0)
-         // the content class makes the list look nicer
-        .css_classes(vec![String::from("content")])
-        .build();
-    let tick_button = Button::builder()
-        .label("Step")
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(12)
-        .margin_end(12)
-        .build();
-    let dump_button = Button::builder()
-        .label("Dump mem")
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(12)
-        .margin_end(12)
-        .build();
-    let go_button = Button::builder()
-        .label("Go")
-        .margin_top(12)
-        .margin_bottom(12)
-        .margin_start(12)
-        .margin_end(12)
-        .build();
-    let label = Label::builder()
-        .label("PC: unint")
-        .build();
+    env_logger::init();
+    let event_loop = EventLoop::new();
+    let mut input = WinitInputHelper::new();
+    let window = {
+        let size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+        WindowBuilder::new()
+            .with_title("Crab Boy")
+            .with_inner_size(size)
+            .with_min_inner_size(size)
+            .with_max_inner_size(size)
+            .build(&event_loop)
+            .unwrap()
+    };
 
-    list.append(&label);
-    list.append(&tick_button);
-    list.append(&dump_button);
-    list.append(&go_button);
+    let mut scale_factor = window.scale_factor();
 
-    // Combine the content in a box
-    let content = Box::new(Orientation::Vertical, 0);
-    // Adwaitas' ApplicationWindow does not include a HeaderBar
-    content.append(
-        &HeaderBar::builder()
-            .title_widget(&adw::WindowTitle::new("Crab Boy", ""))
-            .build(),
-    );
-    content.append(&list);
+    let mut pixels = {
+        let window_size = window.inner_size();
+        let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, &window);
+        Pixels::new(WIDTH, HEIGHT, surface_texture)?
+    };
+    let mut display = Display::new(WIDTH, HEIGHT);
 
+    let mut cpu = create_cpu();
+    let mut gui = Gui::new(&window, &pixels);
 
-    let (sender, receiver) = MainContext::channel(PRIORITY_DEFAULT);
-    sender.send(cpu.lock().unwrap().get_register_debug_string()).ok();
-    
-    /*
-    Connect callback, look this is jank as shit, but it works so
-    meh. Basically im mixing oop and functional programming (kinda)
-    which isnt exactly the best way to do things, tbh its what i get
-    for not planning around the gui. For now this will remain single
-    threaded, see
-    https://gtk-rs.org/gtk4-rs/stable/latest/book/main_event_loop.html
-    for when you wanna fix that
-     */
-    tick_button.connect_clicked(
-        clone!(@strong cpu, @strong sender => move |_| { // TODO read the move and clone! docs
-            let mut cpu = cpu.lock().unwrap();
+    event_loop.run(move |event, _, control_flow| {
+        // Draw the current frame
+        if let Event::RedrawRequested(_) = event {
+            // Draw the display
+            display.draw(pixels.get_frame());
+
+            // Prepare Dear ImGui
+            gui.prepare(&window).expect("gui.prepare() failed");
+
+            // Render everything together
+            let render_result = pixels.render_with(|encoder, render_target, context| {
+                // Render the world texture
+                context.scaling_renderer.render(encoder, render_target);
+
+                // Render Dear ImGui
+                gui.render(&window, encoder, render_target, context, &mut cpu)?;
+
+                Ok(())
+            });
+
             cpu.tick();
-            let register_dump = cpu.get_register_debug_string();
-        
-            sender.send(register_dump).ok();
+
+            // Basic error handling
+            if render_result
+                .map_err(|e| error!("pixels.render() failed: {}", e))
+                .is_err()
+            {
+                *control_flow = ControlFlow::Exit;
+                return;
+            }
         }
-    ));
 
-    go_button.connect_clicked(
-        clone!(@strong cpu, @strong sender => move |_| {
-            thread::spawn( // okay this is threaded now, might be a better way to do this
-                clone!(@strong cpu, @strong sender => move || {
-                    for _ in 0..100000 {
-                        let mut cpu = cpu.lock().unwrap();
-                        cpu.tick();
-                        let register_dump = cpu.get_register_debug_string();
+        // Handle input events
+        gui.handle_event(&window, &event);
+        if input.update(&event) {
+            // Close events
+            if input.key_pressed(VirtualKeyCode::Escape) || input.quit() {
+                *control_flow = ControlFlow::Exit;
+                return;
+            }
 
-                        sender.send(register_dump).ok();
-                    }
-                }
-            ));
+            // Update the scale factor
+            if let Some(factor) = input.scale_factor() {
+                scale_factor = factor;
+            }
+
+            // Update internal state and request a redraw
+            display.update();
+            window.request_redraw();
         }
-    ));
-
-
-    receiver.attach(
-        None,
-        clone!(@weak label => @default-return Continue(false),
-               move |receiver_data| { // OKAY SO APPARENTLY THIS IS WHERE THE DATA FROM THE SEND THING GETS PASSED, I HAD NO IDEA
-                   label.set_text(&receiver_data); 
-                   Continue(true)
-               }
-        ),
-    );
-
-    dump_button.connect_clicked(move |_| {
-        let memory_dump = cpu.lock().unwrap().get_memory_debug();
-        let mut file = File::create("dump").unwrap();
-        file.write_all(&memory_dump.memory).unwrap();
     });
 
-    let window = ApplicationWindow::builder()
-        .application(app)
-        .default_width(350)
-         // add content to window
-        .content(&content)
-        .build();
-    window.show();
+
+
 }
 
 
@@ -177,4 +126,43 @@ fn create_cpu() -> cpu::Cpu {
     let main_cpu = cpu::Cpu::new(registers,  main_memory);
 
     return main_cpu;
+}
+
+
+impl Display {
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            width: width as i16,
+            height: height as i16,
+            box_x: 0,
+            box_y: 0,
+        }
+    }
+
+    /// Update the `Display` internal state; bounce the box around the screen.
+    fn update(&mut self) {
+    }
+
+    /// Draw the `Display` state to the frame buffer.
+    ///
+    /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
+    fn draw(&self, frame: &mut [u8]) {
+        for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
+            let x = (i % self.width as usize) as i16;
+            let y = (i / self.width as usize) as i16;
+
+            let inside_the_box = x >= self.box_x
+                && x < self.box_x + BOX_SIZE
+                && y >= self.box_y
+                && y < self.box_y + BOX_SIZE;
+
+            let rgba = if inside_the_box {
+                [0x5e, 0x48, 0xe8, 0xff]
+            } else {
+                [0x48, 0xb2, 0xe8, 0xff]
+            };
+
+            pixel.copy_from_slice(&rgba);
+        }
+    }
 }

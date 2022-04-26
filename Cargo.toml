@@ -2,13 +2,14 @@
 name = "crab-boy"
 version = "0.1.0"
 authors = ["phasma"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
-[dependencies.gtk]
-version = "0.4.7"
-package = "gtk4"
-
-[dependencies.adw]
-package = "libadwaita"
-version = "0.1.1"
+env_logger = "0.9"
+imgui = "0.8"
+imgui-wgpu = "0.19"
+imgui-winit-support = { version = "0.8", default-features = false, features = ["winit-26"] }
+log = "0.4"
+pixels = "0.9.0"
+winit = "0.26"
+winit_input_helper = "0.12"
