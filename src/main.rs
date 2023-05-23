@@ -16,7 +16,6 @@ const BOX_SIZE: i16 = 64;
 mod cpu;
 mod memory;
 use std::{fs::File, io::Read, sync::{Arc, Mutex}};
-use std::rc::Rc;
 use std::cell::{RefCell, RefMut};
 
 struct Display {
@@ -53,8 +52,13 @@ fn main() -> Result<(), Error> {
 
     let mut cpu = create_cpu();
     let mut gui = Gui::new(&window, &pixels);
+    let mut run = true;
 
     event_loop.run(move |event, _, control_flow| {
+        if run{
+            cpu.tick();
+        }
+
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
             // Draw the display
@@ -69,12 +73,11 @@ fn main() -> Result<(), Error> {
                 context.scaling_renderer.render(encoder, render_target);
 
                 // Render Dear ImGui
-                gui.render(&window, encoder, render_target, context, &mut cpu)?;
+                gui.render(&window, encoder, render_target, context, &mut cpu, &mut run)?;
 
                 Ok(())
             });
 
-            cpu.tick();
 
             // Basic error handling
             if render_result

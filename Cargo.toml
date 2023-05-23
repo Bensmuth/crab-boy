@@ -4,12 +4,15 @@ version = "0.1.0"
 authors = ["phasma"]
 edition = "2021"
 
+[profile.release]
+debug = true
+
 [dependencies]
-env_logger = "0.9"
-imgui = "0.8"
-imgui-wgpu = "0.19"
-imgui-winit-support = { version = "0.8", default-features = false, features = ["winit-26"] }
-log = "0.4"
-pixels = "0.9.0"
-winit = "0.26"
-winit_input_helper = "0.12"
+env_logger = "0.10"
+imgui = "0.10"
+imgui-wgpu = "0.22"
+imgui-winit-support = { version = "0.10" }
+log = "0.4.17"
+pixels = "0.12.1"
+winit = {version = "0.27.2", features=["default", "wayland"]}
+winit_input_helper = "0.13"

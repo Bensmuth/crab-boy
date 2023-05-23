@@ -13,7 +13,6 @@
 // FFFF        Interrupt Enable Register
 //
 // See: http://bgb.bircd.org/pandocs.htm#cgbregisters
-
 #[derive(Debug, Copy, Clone)]
 pub struct Memory{
     pub memory : [u8; 0x10000] // * implements working memory

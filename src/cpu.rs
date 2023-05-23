@@ -85,19 +85,19 @@ impl Registers{
 
     // * reg can be combined as AF, BC, DE, HL
     pub fn get_af(&self) -> u16 {
-        ((self.a as u16) << 8 | (self.f as u16)) // * << is bitshifting and | performs or on bit values
+        (self.a as u16) << 8 | (self.f as u16) // * << is bitshifting and | performs or on bit values
     }
 
     pub fn get_bc(&self) -> u16 {
-        ((self.b as u16) << 8 | (self.c as u16))
+        (self.b as u16) << 8 | (self.c as u16)
     }
 
     pub fn get_de(&self) -> u16 {
-        ((self.d as u16) << 8 | (self.e as u16))
+        (self.d as u16) << 8 | (self.e as u16)
     }
 
     pub fn get_hl(&self) -> u16 {
-        ((self.h as u16) << 8 | (self.l as u16))
+        (self.h as u16) << 8 | (self.l as u16)
     }
 
     pub fn set_af(&mut self, input:u16) {
@@ -121,7 +121,6 @@ impl Registers{
     }
 
 }
-
 #[derive(Debug, Copy, Clone)]
 pub struct Cpu {
     reg: Registers,
@@ -170,7 +169,7 @@ impl Cpu {
             RegisterTarget::BC => {self.reg.get_bc()},
             RegisterTarget::DE => {self.reg.get_de()},
             RegisterTarget::SP => {self.reg.sp},
-            RegisterTarget::MemoryAdress(adress) => {self.mem.clone().get(adress).into()},
+            RegisterTarget::MemoryAdress(adress) => {self.mem.get(adress).into()},
             RegisterTarget::Value(val) => {val},
             _ => panic!("{:?}", register),
         }
@@ -195,7 +194,7 @@ impl Cpu {
         }
     }
     pub fn get_register_debug_string(&self) -> String{
-        format!("PC: {:x}, OpCode {:x} \nRegisters \na: {:x}, f: {:x} \nb: {:x} c: {:x} \nd: {:x} e:{:x} \nh:{:x} l: {:x} \nsp: {:x} pc: {:x}", self.reg.pc, self.mem.clone().get(self.reg.pc), self.reg.a, self.reg.f, self.reg.b, self.reg.c, self.reg.d, self.reg.e, self.reg.h, self.reg.l, self.reg.sp, self.reg.pc)
+        format!("PC: {:x}, OpCode {:x} \nRegisters: \na: {:x}, f: {:x} \nb: {:x} c: {:x} \nd: {:x} e:{:x} \nh:{:x} l: {:x} \nsp: {:x} pc: {:x}", self.reg.pc, self.mem.get(self.reg.pc), self.reg.a, self.reg.f, self.reg.b, self.reg.c, self.reg.d, self.reg.e, self.reg.h, self.reg.l, self.reg.sp, self.reg.pc)
     }
     pub fn get_memory_debug(&mut self) -> super::memory::Memory {
         self.mem
@@ -216,6 +215,7 @@ impl Cpu {
             self.get_target(target) as u8
         }
     }
+    // TODO replace this with get_target_hl
     fn get_a_and_target_hl(&mut self, target : RegisterTarget) -> (u8, u8) { // okay this function is kinda pointless now but i used it for most of the alu instructions so whatever
         let reg_a_value = self.reg.a;
         let target_value = self.get_target_hl(target);
@@ -396,7 +396,7 @@ impl Cpu {
     https://handwiki.org/wiki/Intel_BCD_opcode#Number_representation
     BCD is used to store decimal numbers in financal software.
 
-    BCD, despite angiring me, is also one of the most important things
+    BCD, despite angering me, is also one of the most important things
     to happen to computer science and
     law. https://en.wikipedia.org/wiki/Gottschalk_v._Benson
     */
@@ -507,7 +507,7 @@ impl Cpu {
             0x0D => self.dec_target(RegisterTarget::C, true),
             0x0E => self.reg.c = self.pcc(),
             0x0F => self.rrca(),
-            0x10 => (exit(1)), // STOP
+            0x10 => exit(1), // STOP
             0x11 => { // LD DE, u16
                 self.reg.e = self.pcc();
                 self.reg.d = self.pcc();
