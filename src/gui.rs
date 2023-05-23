@@ -103,8 +103,8 @@ impl Gui {
         let mut flow_control_open = false;
         ui.main_menu_bar(|| {
             ui.menu("Debug", || {
-                registers_open = imgui::MenuItem::new("Registers").build(&ui);
-                flow_control_open = imgui::MenuItem::new("Flow Control").build(&ui);
+                registers_open = ui.menu_item("Registers");
+                flow_control_open = ui.menu_item("Flow Control");
             });
         });
         if registers_open {
@@ -112,10 +112,10 @@ impl Gui {
         }
 
         if self.registers_open {
-            imgui::Window::new("Registers")
+            ui.window("Registers")
                 .opened(&mut self.registers_open)
                 .size([300.0, 100.0], imgui::Condition::FirstUseEver)
-                .build(&ui, || {
+                .build(|| {
                     ui.text(cpu.get_register_debug_string());
                 });
 
@@ -128,10 +128,10 @@ impl Gui {
         let mut step = false;
         let mut torun = false;
         if self.flow_control_open {
-            imgui::Window::new("Flow Control")
+            ui.window("Flow Control")
                 .opened(&mut self.flow_control_open)
                 .size([300.0, 100.0], imgui::Condition::FirstUseEver)
-                .build(&ui, || {
+                .build(|| {
                     step = ui.button("Step");
                     torun = ui.button("Pause/Run")
                 });
@@ -149,19 +149,19 @@ impl Gui {
         // Render Dear ImGui with WGPU
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("imgui"),
-            color_attachments: &[wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: render_target,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: true,
                 },
-            }],
+            })],
             depth_stencil_attachment: None,
         });
 
         self.renderer
-            .render(ui.render(), &context.queue, &context.device, &mut rpass)
+            .render(self.imgui.render(), &context.queue, &context.device, &mut rpass)
     }
 
     /// Handle any outstanding events.

@@ -62,7 +62,7 @@ fn main() -> Result<(), Error> {
         // Draw the current frame
         if let Event::RedrawRequested(_) = event {
             // Draw the display
-            display.draw(pixels.get_frame());
+            display.draw(pixels.frame_mut());
 
             // Prepare Dear ImGui
             gui.prepare(&window).expect("gui.prepare() failed");
