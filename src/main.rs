@@ -9,8 +9,8 @@ use winit_input_helper::WinitInputHelper;
 
 mod gui;
 
-const WIDTH: u32 = 640;
-const HEIGHT: u32 = 480;
+const WIDTH: u32 = 160;
+const HEIGHT: u32 = 144;
 const BOX_SIZE: i16 = 64;
 
 mod cpu;
