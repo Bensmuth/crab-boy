@@ -27,7 +27,7 @@ impl Gui {
         platform.attach_window(
             imgui.io_mut(),
             window,
-            imgui_winit_support::HiDpiMode::Default,
+            imgui_winit_support::HiDpiMode::Locked(1.0),
         );
 
         // Configure Dear ImGui fonts
