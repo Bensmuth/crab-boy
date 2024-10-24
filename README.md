@@ -1,2 +1,2 @@
 # crab-boy
-another incomplete (gameboy) emulator in rust
+A gameboy cpu emulator
